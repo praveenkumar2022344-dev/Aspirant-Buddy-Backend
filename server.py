@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 import zipfile
 import chromadb
 from google import genai
-from google.genai import types
+import requests
+import base64
 
 if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
     print('Unzipping chroma_db...')
@@ -26,6 +27,56 @@ collection = chroma_client.get_or_create_collection(name='aspirant_knowledge')
 
 app = FastAPI()
 
+# --- KEY ROTATOR LOGIC ---
+# Aap future me yahan neeche aur keys add kar sakte hain
+SARVAM_KEYS = [
+    "sk_v2ex5d01_JVtxZhhoxSxyf0DBtyLnoaXK",
+    "sk_aack2civ_4uPEkttLv8nA8Ka7IcYQCLAC",
+    "sk_ykpy29fl_kvBzBOoyZdzhIu1RDaleXUTz",
+    "sk_1apyhpnb_K4QrxO6GmJksKI8YmGvTppQg",
+    "sk_g5ey27q5_A1zPvDLgfYwp9CldWAzCBSrP",
+    "sk_maa0tann_shtZtWIBVT9egvYKMZ6dYnFQ",
+    "sk_xo7163vs_RLKovrCIeqyj01ZXGIH2xkT6"
+]
+current_key_index = 0
+
+def get_sarvam_audio(text: str):
+    global current_key_index
+    url = 'https://api.sarvam.ai/text-to-speech'
+    
+    # Ye loop tab tak chalega jab tak koi na koi key kaam kar jaye
+    for _ in range(len(SARVAM_KEYS)):
+        current_key = SARVAM_KEYS[current_key_index]
+        payload = {
+            'inputs': [text],
+            'target_language_code': 'hi-IN',
+            'speaker': 'shubh', # Male voice
+            'pace': 1.0,
+            'speech_sample_rate': 24000,
+            'enable_preprocessing': True,
+            'model': 'bulbul:v3'
+        }
+        headers = {
+            'api-subscription-key': current_key,
+            'Content-Type': 'application/json'
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                return base64.b64decode(data['audios'][0])
+            else:
+                print(f"Key {current_key_index} limit over/failed. Error: {response.text}")
+                # Switch to next key magically
+                current_key_index = (current_key_index + 1) % len(SARVAM_KEYS)
+                print(f"Switching to next key {current_key_index}")
+        except Exception as e:
+            print(f"Request failed: {e}")
+            current_key_index = (current_key_index + 1) % len(SARVAM_KEYS)
+            
+    return None
+
 @app.websocket('/ws')
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -39,7 +90,6 @@ async def websocket_endpoint(websocket: WebSocket):
             
         prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nKeep your answer conversational, motivating, strictly under 3 sentences. No formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
-        # Step 1: Text ko live stream karo (Speed ke liye)
         response = client.models.generate_content_stream(
             model='gemini-3.5-flash',
             contents=prompt
@@ -51,19 +101,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(chunk.text)
                 full_text += chunk.text
                 
-        # Step 2: Ek hi baari me audio download karo (Limit se bachne ke liye)
         if full_text.strip():
-            try:
-                audio_response = client.models.generate_content(
-                    model='gemini-2.5-flash-preview-tts',
-                    contents=f'Only generate audio from this exact transcript: {full_text.strip()}',
-                    config=types.GenerateContentConfig(response_modalities=['AUDIO'])
-                )
-                for part in audio_response.candidates[0].content.parts:
-                    if part.inline_data:
-                        await websocket.send_bytes(part.inline_data.data)
-            except Exception as e:
-                print('Audio Error:', e)
+            # Yahan text pura hone ke baad audio aayega Sarvam API se
+            audio_bytes = get_sarvam_audio(full_text.strip())
+            if audio_bytes:
+                # 44 bytes ka WAV header skip karte hain taaki click/noise na aaye
+                pcm_bytes = audio_bytes[44:] if len(audio_bytes) > 44 else audio_bytes
+                await websocket.send_bytes(pcm_bytes)
              
         await websocket.send_text('[DONE]')
     except Exception as e:
