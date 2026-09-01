@@ -4,3 +4,4 @@ chromadb
 google-genai
 python-dotenv
 pysqlite3-binary
+websockets
