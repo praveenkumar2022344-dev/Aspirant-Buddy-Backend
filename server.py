@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 import zipfile
 import chromadb
 import google.generativeai as genai
+from fastapi.responses import FileResponse
+import subprocess
 
 # Unzip database if it exists as a zip but not as a folder
 if not os.path.exists("chroma_db") and os.path.exists("chroma_db.zip"):
@@ -19,13 +21,8 @@ if not os.path.exists("chroma_db") and os.path.exists("chroma_db.zip"):
     with zipfile.ZipFile("chroma_db.zip", 'r') as zip_ref:
         zip_ref.extractall(".")
 
-# Load environment variables
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not GEMINI_API_KEY or GEMINI_API_KEY == "your_api_key_here":
-    print("❌ Error: Please set your GEMINI_API_KEY in the .env file!")
-    exit(1)
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-3.5-flash')
@@ -41,42 +38,39 @@ class QuestionRequest(BaseModel):
 @app.post("/ask")
 def ask_buddy(request: QuestionRequest):
     question = request.question
-    
-    # Search database for relevant context
-    results = collection.query(
-        query_texts=[question],
-        n_results=3
-    )
-    
+    results = collection.query(query_texts=[question], n_results=3)
     context = ""
     if results['documents'] and results['documents'][0]:
         context = "\n".join(results['documents'][0])
         
-    prompt = f"""
+    prompt = f'''
     You are 'Aspirant Buddy', an expert mentor for students (like IIT JEE/NEET aspirants).
     You speak casually in Hinglish (Hindi + English). 
     Use the following 'Study Material & Interviews Context' to answer the user's question. 
     If the context doesn't contain the answer, give a helpful generic answer but mention that it's your own advice.
-    Keep your answer conversational, motivating, and strictly under 3 sentences so it's easy to hear.
-    Do not use complex formatting or bullet points. Just plain text.
+    Keep your answer conversational, motivating, strictly under 3 sentences. No formatting.
     
     Context from YouTube Interviews: {context}
-    
     Student Question: {question}
-    
     Aspirant Buddy (Hinglish response):
-    """
-    
+    '''
     try:
         response = model.generate_content(prompt)
         clean_text = response.text.replace('*', '').replace('#', '')
         return {"answer": clean_text}
     except Exception as e:
-        print(f"Error calling Gemini: {e}")
         return {"answer": "Bhaiya thoda technical error aa raha hai, please baad mein try karna."}
 
-if __name__ == "__main__":
-    import uvicorn
-    # Bind to 0.0.0.0 so the phone can access it over WiFi
-    print("🚀 Starting Aspirant Buddy Server on port 8000...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+class SpeakRequest(BaseModel):
+    text: str
+
+@app.post("/speak")
+def speak(request: SpeakRequest):
+    text = request.text
+    output_file = "response.mp3"
+    try:
+        # Premium Indian Voice (Madhur)
+        subprocess.run(["edge-tts", "--voice", "hi-IN-MadhurNeural", "--text", text, "--write-media", output_file], check=True)
+        return FileResponse(output_file, media_type="audio/mpeg")
+    except Exception as e:
+        return {"error": str(e)}
