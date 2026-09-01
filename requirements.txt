@@ -1,7 +1,6 @@
 fastapi
 uvicorn
 chromadb
-google-generativeai
+google-genai
 python-dotenv
 pysqlite3-binary
-edge-tts
