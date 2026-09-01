@@ -28,7 +28,7 @@ if not GEMINI_API_KEY or GEMINI_API_KEY == "your_api_key_here":
     exit(1)
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-3.5-flash')
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="aspirant_knowledge")
