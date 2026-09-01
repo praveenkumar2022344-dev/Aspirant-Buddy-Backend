@@ -1,0 +1,13 @@
+youtube-transcript-api
+chromadb
+google-generativeai
+langchain
+langchain-google-genai
+langchain-community
+SpeechRecognition
+pyaudio
+edge-tts
+pygame
+python-dotenv
+
+pysqlite3-binary
