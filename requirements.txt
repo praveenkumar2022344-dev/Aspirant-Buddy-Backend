@@ -3,6 +3,6 @@ uvicorn
 websockets
 python-dotenv
 chromadb
-google-generativeai
+google-genai
 pysqlite3-binary
 requests
