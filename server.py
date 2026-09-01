@@ -11,21 +11,18 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import zipfile
 import chromadb
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from fastapi.responses import FileResponse
-import subprocess
+import wave
 
-# Unzip database if it exists as a zip but not as a folder
 if not os.path.exists("chroma_db") and os.path.exists("chroma_db.zip"):
     print("Unzipping chroma_db...")
     with zipfile.ZipFile("chroma_db.zip", 'r') as zip_ref:
         zip_ref.extractall(".")
 
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-3.5-flash')
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="aspirant_knowledge")
@@ -55,7 +52,10 @@ def ask_buddy(request: QuestionRequest):
     Aspirant Buddy (Hinglish response):
     '''
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=prompt
+        )
         clean_text = response.text.replace('*', '').replace('#', '')
         return {"answer": clean_text}
     except Exception as e:
@@ -67,10 +67,27 @@ class SpeakRequest(BaseModel):
 @app.post("/speak")
 def speak(request: SpeakRequest):
     text = request.text
-    output_file = "response.mp3"
+    output_file = "response.wav"
     try:
-        # Premium Indian Voice (Madhur)
-        subprocess.run(["edge-tts", "--voice", "hi-IN-MadhurNeural", "--text", text, "--write-media", output_file], check=True)
-        return FileResponse(output_file, media_type="audio/mpeg")
+        # Directly hitting Gemini Live TTS Engine
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-preview-tts',
+            contents=f'Only generate audio from this exact transcript: {text}',
+            config=types.GenerateContentConfig(response_modalities=["AUDIO"])
+        )
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                # Converting Raw Audio to Phone playable Format
+                with wave.open(output_file, 'wb') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(24000)
+                    wav_file.writeframes(part.inline_data.data)
+                return FileResponse(output_file, media_type="audio/wav")
+        return {"error": "No audio generated"}
     except Exception as e:
         return {"error": str(e)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
