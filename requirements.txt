@@ -4,3 +4,4 @@ chromadb
 google-generativeai
 python-dotenv
 pysqlite3-binary
+edge-tts
