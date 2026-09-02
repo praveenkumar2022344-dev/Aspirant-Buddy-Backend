@@ -83,8 +83,8 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         question = await websocket.receive_text()
         
-        # 1. Database Query (Compatible with all Python versions)
-        results = await run_in_threadpool(collection.query, query_texts=[question], n_results=3)
+        # 1. Database Query (Must be sync to avoid SQLite thread error on Render)
+        results = collection.query(query_texts=[question], n_results=3)
         context = ''
         if results['documents'] and results['documents'][0]:
             context = chr(10).join(results['documents'][0])
