@@ -21,8 +21,8 @@ if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
         zip_ref.extractall('.')
 
 load_dotenv()
-# AAPKI NAYI API KEY:
-client = genai.Client(api_key='AQ.Ab8RN6LH20DCcOgKj-aJVqrj_mGkZXHANV6FBtLt_FnqPfyxQQ')
+# Yahan .env se aapki AQ... ya AIza... koi bhi key uth jayegi!
+client = genai.Client(api_key=os.getenv('AQ.Ab8RN6LIzrDjKjMjejZFDNXj7RCYJgBf75Eop3xpKshOpZXpAA'))
 
 # Note: ChromaDB completely disabled to prevent Render 512MB RAM Crash (OOMKill)
 # chroma_client = chromadb.PersistentClient(path='./chroma_db')
@@ -68,7 +68,6 @@ def get_sarvam_audio_sync(text: str):
                 data = response.json()
                 return base64.b64decode(data['audios'][0])
             elif response.status_code == 400:
-                # Text length error (e.g. >500 char), ignore without burning key
                 print(f"Text length error or bad request: {response.text}")
                 return None
             else:
@@ -89,18 +88,18 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         question = await websocket.receive_text()
         
-        # 1. Database Query (Disabled to prevent Render 512MB RAM Crash)
         context = ''
-        
-        # PROMPT
         prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nAdjust the length of your answer based on the intent and complexity of the question. For casual talk or simple questions, keep it very short (1-3 sentences). For complex topics, deep questions, or when explanation is naturally needed, give a detailed and longer response automatically. No markdown formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
-        # 2. Start Gemini AI (Non-streaming to support new key format)
+        # 2. Start Gemini AI (Non-streaming bypass to avoid Google's Server Overload Error)
         try:
-            response = await client.aio.models.generate_content(
-                model='gemini-flash-latest',
-                contents=prompt
-            )
+            def fetch_gemini():
+                return client.models.generate_content(
+                    model='gemini-flash-latest',
+                    contents=prompt
+                )
+            
+            response = await run_in_threadpool(fetch_gemini)
             full_text = response.text
             if not full_text:
                 full_text = "Mujhe kuch samajh nahi aaya, wapas try karo."
@@ -125,7 +124,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 text_chunk = await sentence_queue.get()
                 if text_chunk is None:
                     break
-                # Force split if > 450 to prevent Sarvam 500 char limit error
+                
                 chunks_to_process = []
                 while len(text_chunk) > 450:
                     chunks_to_process.append(text_chunk[:450])
@@ -161,7 +160,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     await sentence_queue.put(current_sentence.strip())
                 break
         
-        # Wait for audio worker to finish all sentences
         await sentence_queue.put(None)
         await worker_task
              
