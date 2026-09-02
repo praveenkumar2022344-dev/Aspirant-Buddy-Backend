@@ -23,6 +23,7 @@ if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
 load_dotenv()
 client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
 
+# Note: Collection is created but we bypass query below to prevent Render RAM Crash
 chroma_client = chromadb.PersistentClient(path='./chroma_db')
 collection = chroma_client.get_or_create_collection(name='aspirant_knowledge')
 
@@ -83,15 +84,11 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         question = await websocket.receive_text()
         
-        # 1. Database Query (Must be sync to avoid SQLite thread error on Render)
-        results = collection.query(query_texts=[question], n_results=3)
+        # 1. Database Query (Disabled to prevent Render 512MB RAM Crash)
         context = ''
-        if results['documents'] and results['documents'][0]:
-            context = chr(10).join(results['documents'][0])
-            
         prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nKeep your answer conversational, motivating, strictly under 3 sentences. No formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
-        # 2. Start Gemini AI stream
+        # 2. Start Gemini AI stream (Using Flash Latest which is Unlimited for Free Tier)
         response = await client.aio.models.generate_content_stream(
             model='gemini-flash-latest',
             contents=prompt
