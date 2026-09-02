@@ -89,7 +89,9 @@ async def websocket_endpoint(websocket: WebSocket):
         
         # 1. Database Query (Disabled to prevent Render 512MB RAM Crash)
         context = ''
-        prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nKeep your answer conversational, motivating, strictly under 3 sentences. No formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
+        
+        # NAYA PROMPT JO INTENT SAMAJHEGA
+        prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nAdjust the length of your answer based on the intent and complexity of the question. For casual talk or simple questions, keep it very short (1-3 sentences). For complex topics, deep questions, or when explanation is naturally needed, give a detailed and longer response automatically. No markdown formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
         # 2. Start Gemini AI stream
         try:
