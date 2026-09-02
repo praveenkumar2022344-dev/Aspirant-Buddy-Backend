@@ -23,8 +23,9 @@ if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
 load_dotenv()
 client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
 
-chroma_client = chromadb.PersistentClient(path='./chroma_db')
-collection = chroma_client.get_or_create_collection(name='aspirant_knowledge')
+# Note: ChromaDB completely disabled to prevent Render 512MB RAM Crash (OOMKill)
+# chroma_client = chromadb.PersistentClient(path='./chroma_db')
+# collection = chroma_client.get_or_create_collection(name='aspirant_knowledge')
 
 app = FastAPI()
 
@@ -137,20 +138,24 @@ async def websocket_endpoint(websocket: WebSocket):
         import re
         current_sentence = ''
         
-        async for chunk in response:
-            if chunk.text:
-                await websocket.send_text(chunk.text)
-                current_sentence += chunk.text
-                
-                # Check for punctuation, including commas to break up long sentences
-                match = re.search(r'[,.?!।]\s|\n', current_sentence)
-                if match:
-                    split_idx = match.end()
-                    sentence_to_speak = current_sentence[:split_idx].strip()
-                    current_sentence = current_sentence[split_idx:]
+        try:
+            async for chunk in response:
+                if chunk.text:
+                    await websocket.send_text(chunk.text)
+                    current_sentence += chunk.text
                     
-                    if len(sentence_to_speak) > 2:
-                        await sentence_queue.put(sentence_to_speak)
+                    # Check for punctuation, including commas to break up long sentences
+                    match = re.search(r'[,.?!।]\s|\n', current_sentence)
+                    if match:
+                        split_idx = match.end()
+                        sentence_to_speak = current_sentence[:split_idx].strip()
+                        current_sentence = current_sentence[split_idx:]
+                        
+                        if len(sentence_to_speak) > 2:
+                            await sentence_queue.put(sentence_to_speak)
+        except Exception as api_err:
+            print("Gemini stream error:", api_err)
+            await websocket.send_text(" Google API thodi slow chal rahi hai, wapas try karo.")
         
         if current_sentence.strip():
             await sentence_queue.put(current_sentence.strip())
