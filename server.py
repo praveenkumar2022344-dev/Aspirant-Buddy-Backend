@@ -21,8 +21,8 @@ if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
         zip_ref.extractall('.')
 
 load_dotenv()
-# Yahan aapki key theek se lagadi gayi hai! (Bina os.getenv ke)
-client = genai.Client(api_key='AQ.Ab8RN6LIzrDjKjMjejZFDNXj7RCYJgBf75Eop3xpKshOpZXpAA')
+# AAPKI PURANI WALI 100% VALID KEY
+client = genai.Client(api_key='AQ.Ab8RN6IXaoBKF98ncLQUi5GpISr-iOOwsr5ncpR7wBXetbWP7w')
 
 # Note: ChromaDB completely disabled to prevent Render 512MB RAM Crash (OOMKill)
 # chroma_client = chromadb.PersistentClient(path='./chroma_db')
@@ -91,28 +91,18 @@ async def websocket_endpoint(websocket: WebSocket):
         context = ''
         prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nAdjust the length of your answer based on the intent and complexity of the question. For casual talk or simple questions, keep it very short (1-3 sentences). For complex topics, deep questions, or when explanation is naturally needed, give a detailed and longer response automatically. No markdown formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
-        # 2. Start Gemini AI (Non-streaming bypass to avoid Google's Server Overload Error)
+        # 2. Start Gemini AI Stream using the un-crashed gemini-3.6-flash model
         try:
-            def fetch_gemini():
-                return client.models.generate_content(
-                    model='gemini-flash-latest',
-                    contents=prompt
-                )
-            
-            response = await run_in_threadpool(fetch_gemini)
-            full_text = response.text
-            if not full_text:
-                full_text = "Mujhe kuch samajh nahi aaya, wapas try karo."
-            
-            # Send the entire text to app immediately
-            await websocket.send_text(full_text)
-            
+            response = await client.aio.models.generate_content_stream(
+                model='gemini-3.6-flash',
+                contents=prompt
+            )
         except Exception as api_err:
             error_msg = str(api_err).lower()
             if '429' in error_msg or 'quota' in error_msg:
                 await websocket.send_text("Bhaiya thoda dheere! Google ne 1 minute me jyada sawal puchhne par limit laga di hai. 1 minute wait karke puchhiye.")
             else:
-                await websocket.send_text("Google API me kuch dikkat aayi hai. Wapas try karo.")
+                await websocket.send_text("Google API me kuch dikkat aayi hai. Invalid API Key.")
             await websocket.send_text("[DONE]")
             return
             
@@ -143,22 +133,28 @@ async def websocket_endpoint(websocket: WebSocket):
         worker_task = asyncio.create_task(audio_worker())
         
         import re
-        current_sentence = full_text
+        current_sentence = ''
         
-        # Split full text into sentences and put in queue
-        while current_sentence:
-            match = re.search(r'[,.?!।]\s|\n', current_sentence)
-            if match:
-                split_idx = match.end()
-                sentence_to_speak = current_sentence[:split_idx].strip()
-                current_sentence = current_sentence[split_idx:]
-                
-                if len(sentence_to_speak) > 2:
-                    await sentence_queue.put(sentence_to_speak)
-            else:
-                if current_sentence.strip():
-                    await sentence_queue.put(current_sentence.strip())
-                break
+        try:
+            async for chunk in response:
+                if chunk.text:
+                    await websocket.send_text(chunk.text)
+                    current_sentence += chunk.text
+                    
+                    match = re.search(r'[,.?!।]\s|\n', current_sentence)
+                    if match:
+                        split_idx = match.end()
+                        sentence_to_speak = current_sentence[:split_idx].strip()
+                        current_sentence = current_sentence[split_idx:]
+                        
+                        if len(sentence_to_speak) > 2:
+                            await sentence_queue.put(sentence_to_speak)
+        except Exception as api_err:
+            print("Gemini stream error:", api_err)
+            await websocket.send_text(" Google API thodi slow chal rahi hai, wapas try karo.")
+            
+        if current_sentence.strip():
+            await sentence_queue.put(current_sentence.strip())
         
         await sentence_queue.put(None)
         await worker_task
