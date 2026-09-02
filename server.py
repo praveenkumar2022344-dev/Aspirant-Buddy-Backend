@@ -61,7 +61,6 @@ def get_sarvam_audio_sync(text: str):
         }
         
         try:
-            # Yahan 10 seconds ka timeout laga hai taaki server hang na ho!
             response = requests.post(url, json=payload, headers=headers, timeout=10)
             if response.status_code == 200:
                 data = response.json()
@@ -82,7 +81,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         question = await websocket.receive_text()
         
-        # Database query background thread me taki baaki kaam na ruke
+        # 1. Database Query
         results = await asyncio.to_thread(collection.query, query_texts=[question], n_results=3)
         context = ''
         if results['documents'] and results['documents'][0]:
@@ -90,24 +89,55 @@ async def websocket_endpoint(websocket: WebSocket):
             
         prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nKeep your answer conversational, motivating, strictly under 3 sentences. No formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
-        # Google API ab properly Async (aio) use kar rahi hai!
+        # 2. Start Gemini AI stream
         response = await client.aio.models.generate_content_stream(
             model='gemini-3.5-flash',
             contents=prompt
         )
         
-        full_text = ''
+        # 3. Audio Worker Queue (Pipelines audio generation real-time)
+        sentence_queue = asyncio.Queue()
+        
+        async def audio_worker():
+            while True:
+                text_chunk = await sentence_queue.get()
+                if text_chunk is None: # Stop signal
+                    break
+                # Generate audio for just this sentence
+                audio = await asyncio.to_thread(get_sarvam_audio_sync, text_chunk)
+                if audio:
+                    pcm = audio[44:] if len(audio)>44 else audio
+                    await websocket.send_bytes(pcm)
+                sentence_queue.task_done()
+
+        # Start background worker
+        worker_task = asyncio.create_task(audio_worker())
+        
+        import re
+        current_sentence = ''
+        
         async for chunk in response:
             if chunk.text:
                 await websocket.send_text(chunk.text)
-                full_text += chunk.text
+                current_sentence += chunk.text
                 
-        if full_text.strip():
-            # Sarvam Audio ko bhi background thread me generate karenge
-            audio_bytes = await asyncio.to_thread(get_sarvam_audio_sync, full_text.strip())
-            if audio_bytes:
-                pcm_bytes = audio_bytes[44:] if len(audio_bytes) > 44 else audio_bytes
-                await websocket.send_bytes(pcm_bytes)
+                # Check if we hit a sentence boundary (e.g. . ? ! or hindi purna viram)
+                match = re.search(r'[.?!।]\s|\n', current_sentence)
+                if match:
+                    split_idx = match.end()
+                    sentence_to_speak = current_sentence[:split_idx].strip()
+                    current_sentence = current_sentence[split_idx:]
+                    
+                    if len(sentence_to_speak) > 2:
+                        await sentence_queue.put(sentence_to_speak)
+        
+        # Send any leftover text
+        if current_sentence.strip():
+            await sentence_queue.put(current_sentence.strip())
+            
+        # 4. Wait for audio worker to finish all sentences
+        await sentence_queue.put(None)
+        await worker_task
              
         await websocket.send_text('[DONE]')
     except Exception as e:
