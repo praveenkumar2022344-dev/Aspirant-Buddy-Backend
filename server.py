@@ -21,7 +21,7 @@ if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
         zip_ref.extractall('.')
 
 load_dotenv()
-# Nayi API Key update kar di gayi hai
+# AAPKI NAYI API KEY:
 client = genai.Client(api_key='AQ.Ab8RN6LH20DCcOgKj-aJVqrj_mGkZXHANV6FBtLt_FnqPfyxQQ')
 
 # Note: ChromaDB completely disabled to prevent Render 512MB RAM Crash (OOMKill)
@@ -92,15 +92,22 @@ async def websocket_endpoint(websocket: WebSocket):
         # 1. Database Query (Disabled to prevent Render 512MB RAM Crash)
         context = ''
         
-        # NAYA PROMPT JO INTENT SAMAJHEGA
+        # PROMPT
         prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nAdjust the length of your answer based on the intent and complexity of the question. For casual talk or simple questions, keep it very short (1-3 sentences). For complex topics, deep questions, or when explanation is naturally needed, give a detailed and longer response automatically. No markdown formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
-        # 2. Start Gemini AI stream
+        # 2. Start Gemini AI (Non-streaming to support new key format)
         try:
-            response = await client.aio.models.generate_content_stream(
+            response = await client.aio.models.generate_content(
                 model='gemini-flash-latest',
                 contents=prompt
             )
+            full_text = response.text
+            if not full_text:
+                full_text = "Mujhe kuch samajh nahi aaya, wapas try karo."
+            
+            # Send the entire text to app immediately
+            await websocket.send_text(full_text)
+            
         except Exception as api_err:
             error_msg = str(api_err).lower()
             if '429' in error_msg or 'quota' in error_msg:
@@ -137,30 +144,24 @@ async def websocket_endpoint(websocket: WebSocket):
         worker_task = asyncio.create_task(audio_worker())
         
         import re
-        current_sentence = ''
+        current_sentence = full_text
         
-        try:
-            async for chunk in response:
-                if chunk.text:
-                    await websocket.send_text(chunk.text)
-                    current_sentence += chunk.text
-                    
-                    # Check for punctuation, including commas to break up long sentences
-                    match = re.search(r'[,.?!।]\s|\n', current_sentence)
-                    if match:
-                        split_idx = match.end()
-                        sentence_to_speak = current_sentence[:split_idx].strip()
-                        current_sentence = current_sentence[split_idx:]
-                        
-                        if len(sentence_to_speak) > 2:
-                            await sentence_queue.put(sentence_to_speak)
-        except Exception as api_err:
-            print("Gemini stream error:", api_err)
-            await websocket.send_text(" Google API thodi slow chal rahi hai, wapas try karo.")
+        # Split full text into sentences and put in queue
+        while current_sentence:
+            match = re.search(r'[,.?!।]\s|\n', current_sentence)
+            if match:
+                split_idx = match.end()
+                sentence_to_speak = current_sentence[:split_idx].strip()
+                current_sentence = current_sentence[split_idx:]
+                
+                if len(sentence_to_speak) > 2:
+                    await sentence_queue.put(sentence_to_speak)
+            else:
+                if current_sentence.strip():
+                    await sentence_queue.put(current_sentence.strip())
+                break
         
-        if current_sentence.strip():
-            await sentence_queue.put(current_sentence.strip())
-            
+        # Wait for audio worker to finish all sentences
         await sentence_queue.put(None)
         await worker_task
              
