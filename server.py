@@ -21,7 +21,8 @@ if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
         zip_ref.extractall('.')
 
 load_dotenv()
-client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+# Nayi API Key update kar di gayi hai
+client = genai.Client(api_key='AQ.Ab8RN6LH20DCcOgKj-aJVqrj_mGkZXHANV6FBtLt_FnqPfyxQQ')
 
 # Note: ChromaDB completely disabled to prevent Render 512MB RAM Crash (OOMKill)
 # chroma_client = chromadb.PersistentClient(path='./chroma_db')
