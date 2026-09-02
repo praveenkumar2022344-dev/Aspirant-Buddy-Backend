@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 try:
     __import__('pysqlite3')
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -28,7 +29,6 @@ collection = chroma_client.get_or_create_collection(name='aspirant_knowledge')
 app = FastAPI()
 
 # --- KEY ROTATOR LOGIC ---
-# Aap future me yahan neeche aur keys add kar sakte hain
 SARVAM_KEYS = [
     "sk_v2ex5d01_JVtxZhhoxSxyf0DBtyLnoaXK",
     "sk_aack2civ_4uPEkttLv8nA8Ka7IcYQCLAC",
@@ -40,17 +40,16 @@ SARVAM_KEYS = [
 ]
 current_key_index = 0
 
-def get_sarvam_audio(text: str):
+def get_sarvam_audio_sync(text: str):
     global current_key_index
     url = 'https://api.sarvam.ai/text-to-speech'
     
-    # Ye loop tab tak chalega jab tak koi na koi key kaam kar jaye
     for _ in range(len(SARVAM_KEYS)):
         current_key = SARVAM_KEYS[current_key_index]
         payload = {
             'inputs': [text],
             'target_language_code': 'hi-IN',
-            'speaker': 'shubh', # Male voice
+            'speaker': 'shubh', 
             'pace': 1.0,
             'speech_sample_rate': 24000,
             'enable_preprocessing': True,
@@ -62,13 +61,13 @@ def get_sarvam_audio(text: str):
         }
         
         try:
-            response = requests.post(url, json=payload, headers=headers)
+            # Yahan 10 seconds ka timeout laga hai taaki server hang na ho!
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 return base64.b64decode(data['audios'][0])
             else:
                 print(f"Key {current_key_index} limit over/failed. Error: {response.text}")
-                # Switch to next key magically
                 current_key_index = (current_key_index + 1) % len(SARVAM_KEYS)
                 print(f"Switching to next key {current_key_index}")
         except Exception as e:
@@ -83,29 +82,30 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         question = await websocket.receive_text()
         
-        results = collection.query(query_texts=[question], n_results=3)
+        # Database query background thread me taki baaki kaam na ruke
+        results = await asyncio.to_thread(collection.query, query_texts=[question], n_results=3)
         context = ''
         if results['documents'] and results['documents'][0]:
             context = chr(10).join(results['documents'][0])
             
         prompt = 'You are Aspirant Buddy, an expert mentor for students (like IIT JEE/NEET aspirants).\nYou speak casually in Hinglish (Hindi + English).\nUse the following Study Material & Interviews Context to answer the user question.\nIf the context does not contain the answer, give a helpful generic answer but mention that it is your own advice.\nKeep your answer conversational, motivating, strictly under 3 sentences. No formatting.\n\nContext from YouTube Interviews: ' + context + '\nStudent Question: ' + question + '\nAspirant Buddy (Hinglish response):'
         
-        response = client.models.generate_content_stream(
+        # Google API ab properly Async (aio) use kar rahi hai!
+        response = await client.aio.models.generate_content_stream(
             model='gemini-3.5-flash',
             contents=prompt
         )
         
         full_text = ''
-        for chunk in response:
+        async for chunk in response:
             if chunk.text:
                 await websocket.send_text(chunk.text)
                 full_text += chunk.text
                 
         if full_text.strip():
-            # Yahan text pura hone ke baad audio aayega Sarvam API se
-            audio_bytes = get_sarvam_audio(full_text.strip())
+            # Sarvam Audio ko bhi background thread me generate karenge
+            audio_bytes = await asyncio.to_thread(get_sarvam_audio_sync, full_text.strip())
             if audio_bytes:
-                # 44 bytes ka WAV header skip karte hain taaki click/noise na aaye
                 pcm_bytes = audio_bytes[44:] if len(audio_bytes) > 44 else audio_bytes
                 await websocket.send_bytes(pcm_bytes)
              
