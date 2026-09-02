@@ -21,8 +21,8 @@ if not os.path.exists('chroma_db') and os.path.exists('chroma_db.zip'):
         zip_ref.extractall('.')
 
 load_dotenv()
-# Yahan .env se aapki AQ... ya AIza... koi bhi key uth jayegi!
-client = genai.Client(api_key=os.getenv('AQ.Ab8RN6LIzrDjKjMjejZFDNXj7RCYJgBf75Eop3xpKshOpZXpAA'))
+# Yahan aapki key theek se lagadi gayi hai! (Bina os.getenv ke)
+client = genai.Client(api_key='AQ.Ab8RN6LIzrDjKjMjejZFDNXj7RCYJgBf75Eop3xpKshOpZXpAA')
 
 # Note: ChromaDB completely disabled to prevent Render 512MB RAM Crash (OOMKill)
 # chroma_client = chromadb.PersistentClient(path='./chroma_db')
