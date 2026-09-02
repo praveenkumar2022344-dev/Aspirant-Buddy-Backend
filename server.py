@@ -93,7 +93,7 @@ async def websocket_endpoint(websocket: WebSocket):
         
         # 2. Start Gemini AI stream
         response = await client.aio.models.generate_content_stream(
-            model='gemini-1.5-flash',
+            model='gemini-flash-latest',
             contents=prompt
         )
         
