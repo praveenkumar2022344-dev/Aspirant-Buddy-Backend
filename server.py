@@ -75,14 +75,16 @@ def get_sarvam_audio_sync(text: str):
             
     return None
 
+from starlette.concurrency import run_in_threadpool
+
 @app.websocket('/ws')
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         question = await websocket.receive_text()
         
-        # 1. Database Query
-        results = await asyncio.to_thread(collection.query, query_texts=[question], n_results=3)
+        # 1. Database Query (Compatible with all Python versions)
+        results = await run_in_threadpool(collection.query, query_texts=[question], n_results=3)
         context = ''
         if results['documents'] and results['documents'][0]:
             context = chr(10).join(results['documents'][0])
@@ -104,7 +106,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 if text_chunk is None: # Stop signal
                     break
                 # Generate audio for just this sentence
-                audio = await asyncio.to_thread(get_sarvam_audio_sync, text_chunk)
+                audio = await run_in_threadpool(get_sarvam_audio_sync, text_chunk)
                 if audio:
                     pcm = audio[44:] if len(audio)>44 else audio
                     await websocket.send_bytes(pcm)
